@@ -1,8 +1,12 @@
 {
   "name": "reactjs-datatable",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Datatable component for React",
   "main": "./build/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fabio-alss-freitas/reactjs-datatable.git"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "webpack"

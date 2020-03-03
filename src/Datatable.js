@@ -1,11 +1,11 @@
-import "./bootstrap.min.css"
-import "datatables.net-bs/css/dataTables.bootstrap.min.css"
+import "./Datatable.scoped.css"
 import "datatables.net-buttons-bs"
 import "datatables.net-buttons/js/buttons.html5.js"
 import "jszip"
 import "pdfmake"
 
 import React from "react"
+import PropTypes from "prop-types"
 
 const $ = require("jquery")
 $.DataTable = require("datatables.net-bs")
@@ -21,14 +21,46 @@ class Datatable extends React.Component {
   }
 
   async componentDidMount() {
+    $.extend($.fn.dataTableExt.oSort, {
+      "date-uk-pre": function(a) {
+        if (a == null || a == "") {
+          return 0
+        }
+        var ukDatea = a.split("/")
+        return (ukDatea[2] + ukDatea[1] + ukDatea[0]) * 1
+      },
+
+      "date-uk-asc": function(a, b) {
+        return a < b ? -1 : a > b ? 1 : 0
+      },
+
+      "date-uk-desc": function(a, b) {
+        return a < b ? 1 : a > b ? -1 : 0
+      }
+    })
+
     await this.drawTable()
   }
 
   componentDidUpdate(prevProps) {
-    const { id, serverDisabled } = this.props
-    if (id != prevProps.id) {
-      if (this.table && !serverDisabled) {
-        this.table.ajax.reload()
+    const { id, serverDisabled = false, columns, data } = this.props
+
+    if (serverDisabled) {
+      if (JSON.stringify(prevProps.columns) != JSON.stringify(columns)) {
+        if (this.table) {
+          this.table.clear().destroy()
+        }
+        this.drawTable()
+      } else {
+        if (JSON.stringify(prevProps.data) != JSON.stringify(data)) {
+          this.addRows(data)
+        }
+      }
+    } else {
+      if (id != prevProps.id) {
+        if (this.table && !serverDisabled) {
+          this.table.ajax.reload()
+        }
       }
     }
   }
@@ -62,7 +94,7 @@ class Datatable extends React.Component {
   }
 
   handleOnClick(i) {
-    const { onEditPress, editableRow, onDeletePress } = this.props
+    const { onEditPress, editableRow = false, onDeletePress } = this.props
     const operation = i.split("_")[0]
     const id = parseInt(i.split("_")[1])
 
@@ -109,7 +141,12 @@ class Datatable extends React.Component {
   }
 
   ajax = async (data, callback) => {
-    const { fetchUrl, id, idRequired, serverDisabled } = this.props
+    const {
+      fetchUrl,
+      id,
+      idRequired = false,
+      serverDisabled = false
+    } = this.props
 
     if (serverDisabled) {
       return null
@@ -181,28 +218,64 @@ class Datatable extends React.Component {
     }
   }
 
+  addRows = arr => {
+    if (arr) {
+      const formattedArr = arr.map(item => {
+        if (item.acao != null) {
+          return {
+            ...item,
+            acao: item.acao
+              .split('type="button"')
+              .join(`type="button" aria-controls="${this.getTableId()}"`)
+          }
+        } else {
+          return item
+        }
+      })
+      this.table.clear()
+      this.table.rows.add(formattedArr).draw(false)
+      return formattedArr
+    }
+  }
+
   drawTable = async () => {
     const {
       tableRef,
       fetchUrl,
       onAddPress,
-      serverDisabled,
+      serverDisabled = false,
       columns,
-      columnDefs
+      columnDefs,
+      data
     } = this.props
 
     if (serverDisabled) {
-      this.table = $(this.tableRef).DataTable({
-        dom: this.renderDom(),
-        buttons: this.renderButtons(),
-        columnDefs,
-        paging: false,
-        columns,
-        language: {
-          url:
-            "https://cdn.datatables.net/plug-ins/1.10.16/i18n/Portuguese-Brasil.json"
-        }
-      })
+      if (columns != null && columns.length > 0) {
+        this.table = $(this.tableRef).DataTable({
+          dom: this.renderDom(),
+          buttons: this.renderButtons(),
+          columnDefs,
+          paging: false,
+          columns,
+          language: {
+            url:
+              "https://cdn.datatables.net/plug-ins/1.10.16/i18n/Portuguese-Brasil.json"
+          }
+        })
+      } else {
+        this.table = $(this.tableRef).DataTable({
+          dom: this.renderDom(),
+          buttons: this.renderButtons(),
+          columnDefs,
+          paging: false,
+          columns: [{ title: "", data: "empty" }],
+          language: {
+            url:
+              "https://cdn.datatables.net/plug-ins/1.10.16/i18n/Portuguese-Brasil.json"
+          }
+        })
+      }
+      this.addRows(data)
     } else {
       const columnsFetch = await fetch(`datatable/${fetchUrl}/colunas`)
       const columnsFetched = await columnsFetch.json()
@@ -227,10 +300,6 @@ class Datatable extends React.Component {
       })
     }
 
-    if (tableRef) {
-      tableRef(this.table)
-    }
-
     this.table.on("draw", () => {
       $(
         `div.dataTables_filter input[aria-controls="${this.getTableId()}"]`
@@ -252,10 +321,19 @@ class Datatable extends React.Component {
         }
       )
     })
+
+    if (tableRef) {
+      tableRef({
+        ...this.table,
+        ...{
+          addRows: this.addRows
+        }
+      })
+    }
   }
 
   renderDom() {
-    const { hideBoxSearch, hidePagingInfo } = this.props
+    const { hideBoxSearch = false, hidePagingInfo = false } = this.props
     let dom = ""
 
     if (!hideBoxSearch) {
@@ -274,30 +352,40 @@ class Datatable extends React.Component {
   }
 
   renderButtons() {
-    const { hideAddButton, hideExportButton } = this.props
-    const columns = hideExportButton
-      ? []
-      : [
-          {
-            extend: "csv",
-            text: "<i class='fa fa-file-text-o'></i> CSV",
-            className: "btn-space btn-default"
-          },
-          {
-            extend: "pdf",
-            text: "<i class='fa fa-file-pdf-o'></i> PDF",
-            className: "btn-space btn-default"
-          }
-        ]
+    const { hideAddButton = false, exportOptions } = this.props
+    const columns = []
 
-    if (hideAddButton) {
-      return columns
-    } else {
-      return columns.concat({
+    if (exportOptions != null && exportOptions.length > 0) {
+      for (let i = 0; i < exportOptions.length; i++) {
+        switch (exportOptions[i]) {
+          case "csv":
+            columns.push({
+              extend: "csv",
+              text: "<i class='fa fa-file-text-o'></i> CSV",
+              className: "btn-space btn-default"
+            })
+            break
+          case "pdf":
+            columns.push({
+              extend: "pdf",
+              text: "<i class='fa fa-file-pdf-o'></i> PDF",
+              className: "btn-space btn-default"
+            })
+            break
+        }
+      }
+    }
+
+    if (!hideAddButton) {
+      columns.push({
         text: "<i class='fa fa-plus'></i> Novo Registro",
         className: "btn-space btn-success btn-registro"
       })
     }
+
+    console.log(columns)
+
+    return columns
   }
 
   renderRef = ref => {
@@ -313,6 +401,25 @@ class Datatable extends React.Component {
       ></table>
     )
   }
+}
+
+Datatable.propTypes = {
+  fetchUrl: PropTypes.string,
+  id: PropTypes.string,
+  idRequired: PropTypes.bool,
+  onAddPress: PropTypes.func,
+  onEditPress: PropTypes.func,
+  onDeletePress: PropTypes.func,
+  hideAddButton: PropTypes.bool,
+  exportOptions: PropTypes.array,
+  tableRef: PropTypes.func,
+  editableRow: PropTypes.bool,
+  serverDisabled: PropTypes.bool,
+  columns: PropTypes.array,
+  columnDefs: PropTypes.object,
+  hideBoxSearch: PropTypes.bool,
+  hidePagingInfo: PropTypes.bool,
+  data: PropTypes.array
 }
 
 export default Datatable
