@@ -42,13 +42,13 @@ class Datatable extends React.Component {
     await this.drawTable()
   }
 
-  componentDidUpdate(prevProps) {
+  async componentDidUpdate(prevProps) {
     const { id, serverDisabled = false, columns, data } = this.props
 
     if (serverDisabled) {
       if (JSON.stringify(prevProps.columns) != JSON.stringify(columns)) {
         if (this.table) {
-          this.table.clear().destroy()
+          await this.table.clear().destroy()
         }
         this.drawTable()
       } else {
@@ -65,9 +65,9 @@ class Datatable extends React.Component {
     }
   }
 
-  componentWillUnmount() {
+  async componentWillUnmount() {
     if (this.table) {
-      this.table.destroy(true)
+      await this.table.destroy(true)
     }
   }
 
@@ -94,7 +94,12 @@ class Datatable extends React.Component {
   }
 
   handleOnClick(i) {
-    const { onEditPress, editableRow = false, onDeletePress } = this.props
+    const {
+      onEditPress,
+      editableRow = false,
+      onDeletePress,
+      columnButtons
+    } = this.props
     const operation = i.split("_")[0]
     const id = parseInt(i.split("_")[1])
 
@@ -124,7 +129,6 @@ class Datatable extends React.Component {
             }
           })
         }
-
         break
 
       case "delete":
@@ -137,12 +141,26 @@ class Datatable extends React.Component {
           })
         }
         break
+
+      default:
+        if (columnButtons != null) {
+          const operationKeys = Object.keys(columnButtons)
+          if (operationKeys.includes(operation)) {
+            this.table.rows().every((index, element) => {
+              const row = this.table.rows().data()[index]
+              if (row.key == id) {
+                columnButtons[operation](row)
+              }
+            })
+          }
+        }
     }
   }
 
   ajax = async (data, callback) => {
     const {
       fetchUrl,
+      proxy,
       id,
       idRequired = false,
       serverDisabled = false
@@ -185,7 +203,7 @@ class Datatable extends React.Component {
       })
     } else {
       $.get(
-        `datatable/${fetchUrl}?${id ? `id=${id}&` : ""}start=${
+        `${proxy || ""}datatable/${fetchUrl}?${id ? `id=${id}&` : ""}start=${
           data.start
         }&length=${data.length}&order=${
           data.columns[data.order[0].column].data
@@ -242,6 +260,7 @@ class Datatable extends React.Component {
     const {
       tableRef,
       fetchUrl,
+      proxy,
       onAddPress,
       serverDisabled = false,
       columns,
@@ -277,7 +296,9 @@ class Datatable extends React.Component {
       }
       this.addRows(data)
     } else {
-      const columnsFetch = await fetch(`datatable/${fetchUrl}/colunas`)
+      const columnsFetch = await fetch(
+        `${proxy || ""}datatable/${fetchUrl}/colunas`
+      )
       const columnsFetched = await columnsFetch.json()
       this.table = $(this.tableRef).DataTable({
         dom: this.renderDom(),
@@ -383,8 +404,6 @@ class Datatable extends React.Component {
       })
     }
 
-    console.log(columns)
-
     return columns
   }
 
@@ -419,7 +438,8 @@ Datatable.propTypes = {
   columnDefs: PropTypes.object,
   hideBoxSearch: PropTypes.bool,
   hidePagingInfo: PropTypes.bool,
-  data: PropTypes.array
+  data: PropTypes.array,
+  proxy: PropTypes.string
 }
 
 export default Datatable
